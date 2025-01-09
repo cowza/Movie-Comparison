@@ -1,0 +1,20 @@
+FROM mcr.microsoft.com/dotnet/sdk:8.0
+
+WORKDIR /src
+
+ENV DOTNET_USE_POLLING_FILE_WATCHER=true
+
+# Copy project files for restoration
+COPY ["src/MovieComparison.Api/MovieComparison.Api.csproj", "src/MovieComparison.Api/"]
+COPY ["src/MovieComparison.Core/MovieComparison.Core.csproj", "src/MovieComparison.Core/"]
+COPY ["src/MovieComparison.Infrastructure/MovieComparison.Infrastructure.csproj", "src/MovieComparison.Infrastructure/"]
+
+# Restore packages
+RUN dotnet restore "src/MovieComparison.Api/MovieComparison.Api.csproj"
+
+EXPOSE 5000
+EXPOSE 5555
+
+# Watch the API project
+WORKDIR /src/src/MovieComparison.Api
+ENTRYPOINT ["dotnet", "watch", "run", "--no-launch-profile"]

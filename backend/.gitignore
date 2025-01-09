@@ -1,0 +1,81 @@
+# Build and release folders
+bin/
+obj/
+
+# User-specific files
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# DotNet specific folders
+.vscode/
+.history/
+.idea/
+
+# Visual Studio Code-specific files
+.vscode/
+
+# Visual Studio specific files
+.vs/
+
+# Rider specific files
+.idea/
+
+# Logs
+*.log
+
+# Compiled binary files
+*.dll
+*.exe
+*.pdb
+*.mdb
+
+# Azure DevOps specific files
+.packages/
+
+# System files
+Thumbs.db
+desktop.ini
+
+# Dependencies
+*.nupkg
+*.snupkg
+
+# NuGet packages
+packages/
+*.nuget.props
+project.lock.json
+project.fragment.lock.json
+
+# JetBrains Rider specific files
+.idea/
+*.sln.iml
+
+# Entity Framework Migrations
+*MigrationsSnapshot.cs
+
+# ASP.NET Scaffolding
+ScaffoldingReadMe.txt
+
+# npm
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Visual Studio Code Debugger
+launch.json
+
+# Temporary files
+*.tmp
+*.temp
+
+# Database files
+*.mdf
+*.ldf
+
+# Secrets
+secrets.json
+.env

@@ -1,0 +1,113 @@
+services:
+  nginx-proxy:
+    restart: always
+    container_name: nginx-proxy
+    image: nginxproxy/nginx-proxy:1.6
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - nginx-certs:/etc/nginx/certs
+      - nginx-html:/usr/share/nginx/html
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+    profiles:
+      - remote
+    networks:
+      - movie-network
+
+  nginx-proxy-acme:
+    restart: always
+    container_name: nginx-proxy-acme
+    image: nginxproxy/acme-companion:2.5
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - nginx-acme:/etc/acme.sh
+    volumes_from:
+      - nginx-proxy
+    profiles:
+      - remote
+    networks:
+      - movie-network
+
+  backend-local:
+    container_name: backend
+    build:
+      context: ../backend
+      dockerfile: Dockerfile.dev
+    env_file:
+      - secrets/local-env  
+    ports:
+      - "5000:5000"
+      - "5555:5555"
+    volumes:
+      - ../backend:/src
+      - $HOME/.nuget/packages:/root/.nuget/packages:ro
+    profiles:
+      - local
+    networks:
+      - movie-network
+
+  backend:
+    container_name: backend
+    build:
+      context: ../backend/
+      dockerfile: Dockerfile
+    env_file:
+      - secrets/remote-env
+    expose:
+      - "5000"
+    profiles:
+      - remote
+    networks:
+      - movie-network
+
+
+  frontend-local:
+    container_name: frontend
+    build:
+      context: ../frontend/app
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3000:3000"
+    volumes:
+      - ../frontend/app:/app
+      - /app/node_modules
+    environment:
+      - WATCHPACK_POLLING=true
+      - WDS_SOCKET_PORT=0
+    depends_on:
+      - backend-local
+    profiles:
+      - local
+    networks:
+      - movie-network
+
+  frontend:
+    container_name: frontend
+    build:
+      context: ../frontend/app
+      dockerfile: Dockerfile
+    env_file:
+      - secrets/remote-env
+    depends_on:
+      - backend
+    profiles:
+      - remote
+    networks:
+      - movie-network
+
+
+volumes:
+  nginx-certs:
+  nginx-html:
+  nginx-acme:
+
+networks:
+  movie-network:
+    driver: bridge
+
+secrets:
+  remote-env:
+    file: secrets/remote-env
+  local-env:
+    file: secrets/local-env
