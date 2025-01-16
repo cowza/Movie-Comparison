@@ -10,12 +10,12 @@ deploy-local:
 .PHONY: build-remote-backend
 build-remote-backend:
 	@echo "Building backend image for remote..."
-	@docker build --secret id=local-env,src=docker/secrets/remote-env -f backend/Dockerfile -t backend ./backend
+	@docker build --secret id=remote-env,src=docker/secrets/remote-env -f backend/Dockerfile -t backend ./backend
 
 .PHONY: build-remote-frontend
 build-remote-frontend:
 	@echo "Building frontend image for remote..."
-	@docker build --secret id=local-env,src=docker/secrets/remote-env -f frontend/app/Dockerfile -t frontend ./frontend/app
+	@docker build --secret id=remote-env,src=docker/secrets/remote-env -f frontend/app/Dockerfile -t frontend ./frontend/app
 
 .PHONY: load-remote-backend
 load-remote-backend: build-remote-backend
