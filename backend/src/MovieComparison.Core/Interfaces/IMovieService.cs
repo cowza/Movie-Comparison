@@ -5,6 +5,6 @@ namespace MovieComparison.Core.Interfaces
     public interface IMovieService
     {
         Task<IEnumerable<MovieDto>> GetAllMoviesAsync();
-        Task<MoviePriceDto> GetMovieBestPriceAsync(IEnumerable<ProviderDto> providers);
+        Task<MoviePriceDto> GetMovieBestPriceAsync(string id);
     }
 }

@@ -28,21 +28,16 @@ namespace MoveComparison.UnitTests.Api
                 Title = "Star Wars: Episode IV - A New Hope",
                 Year = "1977",
                 Poster = "https://m.media-amazon.com/images/M/MV5BOTIyMDY2NGQtOGJjNi00OTk4LWFhMDgtYmE3M2NiYzM0YTVmXkEyXkFqcGdeQXVyNTU1NTcwOTk@._V1_SX300.jpg",
-                Providers = new List<ProviderDto>
-                {
-                    new() { Name = "cinemaworld", ID = "cw0076759" },
-                    new() { Name = "filmworld", ID = "fw0076759" }
-                }
+                ID = "0076759",
+                Providers = "cinemaworld;filmworld;"
             },
             new()
             {
                 Title = "Star Wars: The Force Awakens",
                 Year = "2015",
                 Poster = "https://m.media-amazon.com/images/M/MV5BOTAzODEzNDAzMl5BMl5BanBnXkFtZTgwMDU1MTgzNzE@._V1_SX300.jpg",
-                Providers = new List<ProviderDto>
-                {
-                    new() { Name = "cinemaworld", ID = "cw2488496" }
-                }
+                ID = "2488496",
+                Providers = "cinemaworld"
             }
         };
         }
@@ -65,24 +60,17 @@ namespace MoveComparison.UnitTests.Api
             var firstMovie = movies.First();
             Assert.Equal("Star Wars: Episode IV - A New Hope", firstMovie.Title);
             Assert.Equal("1977", firstMovie.Year);
-            Assert.Equal(2, firstMovie.Providers.Count());
+            Assert.Contains("cinemaworld;filmworld;", firstMovie.Providers);
 
             var lastMovie = movies.Last();
             Assert.Equal("Star Wars: The Force Awakens", lastMovie.Title);
-            Assert.Equal(1, lastMovie.Providers.Count());
-            Assert.Equal("cinemaworld", lastMovie.Providers.Single().Name);
+            Assert.Contains("cinemaworld", lastMovie.Providers);
         }
 
         [Fact]
         public async Task GetMoviePrices_ForNewHope_ReturnsLowestPrice()
         {
             // Arrange
-            var providers = new List<ProviderDto>
-        {
-            new() { Name = "cinemaworld", ID = "cw0076759" },
-            new() { Name = "filmworld", ID = "fw0076759" }
-        };
-
             var expectedPrice = new MoviePriceDto
             {
                 Provider = "filmworld",
@@ -90,12 +78,12 @@ namespace MoveComparison.UnitTests.Api
             };
 
             _movieServiceMock
-                .Setup(x => x.GetMovieBestPriceAsync(It.Is<IEnumerable<ProviderDto>>(p =>
-                    p.Any(x => x.ID == "cw0076759" || x.ID == "fw0076759"))))
+                .Setup(x => x.GetMovieBestPriceAsync(It.Is<string>(p =>
+                    p == "0076759" || p == "0076759")))
                 .ReturnsAsync(expectedPrice);
 
             // Act
-            var result = await _sut.GetMoviePrices(providers);
+            var result = await _sut.GetMoviePrices("0076759");
 
             // Assert
             var okResult = Assert.IsType<OkObjectResult>(result.Result);
@@ -108,11 +96,6 @@ namespace MoveComparison.UnitTests.Api
         public async Task GetMoviePrices_ForSingleProviderMovie_ReturnsCorrectPrice()
         {
             // Arrange
-            var providers = new List<ProviderDto>
-        {
-            new() { Name = "cinemaworld", ID = "cw2488496" }
-        };
-
             var expectedPrice = new MoviePriceDto
             {
                 Provider = "cinemaworld",
@@ -120,12 +103,12 @@ namespace MoveComparison.UnitTests.Api
             };
 
             _movieServiceMock
-                .Setup(x => x.GetMovieBestPriceAsync(It.Is<IEnumerable<ProviderDto>>(p =>
-                    p.Any(x => x.ID == "cw2488496"))))
+                .Setup(x => x.GetMovieBestPriceAsync(It.Is<string>(p =>
+                    p == "2488496")))
                 .ReturnsAsync(expectedPrice);
 
             // Act
-            var result = await _sut.GetMoviePrices(providers);
+            var result = await _sut.GetMoviePrices("2488496");
 
             // Assert
             var okResult = Assert.IsType<OkObjectResult>(result.Result);
@@ -138,14 +121,8 @@ namespace MoveComparison.UnitTests.Api
         public async Task GetMoviePrices_WhenOneProviderFails_StillReturnsPrice()
         {
             // Arrange
-            var providers = new List<ProviderDto>
-        {
-            new() { Name = "cinemaworld", ID = "cw0076759" },
-            new() { Name = "filmworld", ID = "fw0076759" }
-        };
-
             _movieServiceMock
-                .Setup(x => x.GetMovieBestPriceAsync(It.IsAny<IEnumerable<ProviderDto>>()))
+                .Setup(x => x.GetMovieBestPriceAsync(It.IsAny<string>()))
                 .ReturnsAsync(new MoviePriceDto
                 {
                     Provider = "cinemaworld",
@@ -153,7 +130,7 @@ namespace MoveComparison.UnitTests.Api
                 });
 
             // Act
-            var result = await _sut.GetMoviePrices(providers);
+            var result = await _sut.GetMoviePrices("2488496");
 
             // Assert
             var okResult = Assert.IsType<OkObjectResult>(result.Result);
@@ -168,26 +145,20 @@ namespace MoveComparison.UnitTests.Api
 
             // Assert
             var badRequestResult = Assert.IsType<BadRequestObjectResult>(result.Result);
-            Assert.Equal("No providers specified", badRequestResult.Value);
+            Assert.Equal("No id specified", badRequestResult.Value);
         }
 
         [Fact]
         public async Task GetMoviePrices_WhenServiceThrowsException_Returns500()
         {
             // Arrange
-            var providers = new List<ProviderDto>
-            {
-                new() { Name = "cinemaworld", ID = "cw0076759" },
-                new() { Name = "filmworld", ID = "fw0076759" }
-            };
-
             var expectedException = new Exception("Test error");
             _movieServiceMock
-                .Setup(x => x.GetMovieBestPriceAsync(It.IsAny<IEnumerable<ProviderDto>>()))
+                .Setup(x => x.GetMovieBestPriceAsync(It.IsAny<string>()))
                 .ThrowsAsync(expectedException);
 
             // Act
-            var result = await _sut.GetMoviePrices(providers);
+            var result = await _sut.GetMoviePrices("0076759");
 
             // Assert
             var statusCodeResult = Assert.IsType<ObjectResult>(result.Result);
