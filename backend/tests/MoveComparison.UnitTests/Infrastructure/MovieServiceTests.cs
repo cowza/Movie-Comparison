@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Logging;
 using Moq;
-using MovieComparison.Core.DTOs;
 using MovieComparison.Core.Interfaces;
 using MovieComparison.Core.Models;
 using MovieComparison.Infrastructure.Services;
@@ -66,20 +65,14 @@ namespace MoveComparison.UnitTests.Infrastructure
             Assert.Single(result); // Should combine duplicate movies
             var movie = result.First();
             Assert.Equal("Movie 1", movie.Title);
-            Assert.Contains("cinemaworld", movie.Providers.Select(p => p.Name));
-            Assert.Contains("filmworld", movie.Providers.Select(p => p.Name));
+            Assert.Contains("cinemaworld", movie.Providers);
+            Assert.Contains("filmworld", movie.Providers);
         }
 
         [Fact]
         public async Task GetMovieBestPriceAsync_WhenBothProvidersRespond_ShouldReturnLowestPrice()
         {
             // Arrange
-            var providers = new List<ProviderDto>
-            {
-                new() { Name = "cinemaworld", ID = "cw1" },
-                new() { Name = "filmworld", ID = "fw1" }
-            };
-
             var cinemaWorldMovie = new MovieDetails
             {
                 ID = "cw1",
@@ -97,15 +90,15 @@ namespace MoveComparison.UnitTests.Infrastructure
             };
 
             _cinemaWorldProviderMock
-                .Setup(x => x.GetMovieDetailsAsync("cw1"))
+                .Setup(x => x.GetMovieDetailsAsync("1"))
                 .ReturnsAsync(cinemaWorldMovie);
 
             _filmWorldProviderMock
-                .Setup(x => x.GetMovieDetailsAsync("fw1"))
+                .Setup(x => x.GetMovieDetailsAsync("1"))
                 .ReturnsAsync(filmWorldMovie);
 
             // Act
-            var result = await _sut.GetMovieBestPriceAsync(providers);
+            var result = await _sut.GetMovieBestPriceAsync("1");
 
             // Assert
             Assert.NotNull(result);
@@ -117,12 +110,6 @@ namespace MoveComparison.UnitTests.Infrastructure
         public async Task GetMovieBestPriceAsync_WhenOneProviderFails_ShouldReturnOtherProviderPrice()
         {
             // Arrange
-            var providers = new List<ProviderDto>
-            {
-                new() { Name = "cinemaworld", ID = "cw1" },
-                new() { Name = "filmworld", ID = "fw1" }
-            };
-
             var cinemaWorldMovie = new MovieDetails
             {
                 ID = "cw1",
@@ -132,15 +119,15 @@ namespace MoveComparison.UnitTests.Infrastructure
             };
 
             _cinemaWorldProviderMock
-                .Setup(x => x.GetMovieDetailsAsync("cw1"))
+                .Setup(x => x.GetMovieDetailsAsync("1"))
                 .ReturnsAsync(cinemaWorldMovie);
 
             _filmWorldProviderMock
-                .Setup(x => x.GetMovieDetailsAsync("fw1"))
+                .Setup(x => x.GetMovieDetailsAsync("1"))
                 .ThrowsAsync(new Exception("API Error"));
 
             // Act
-            var result = await _sut.GetMovieBestPriceAsync(providers);
+            var result = await _sut.GetMovieBestPriceAsync("1");
 
             // Assert
             Assert.NotNull(result);
@@ -152,23 +139,17 @@ namespace MoveComparison.UnitTests.Infrastructure
         public async Task GetMovieBestPriceAsync_WhenAllProvidersFail_ShouldThrowException()
         {
             // Arrange
-            var providers = new List<ProviderDto>
-            {
-                new() { Name = "cinemaworld", ID = "cw1" },
-                new() { Name = "filmworld", ID = "fw1" }
-            };
-
             _cinemaWorldProviderMock
-                .Setup(x => x.GetMovieDetailsAsync("cw1"))
+                .Setup(x => x.GetMovieDetailsAsync("1"))
                 .ThrowsAsync(new Exception("API Error"));
 
             _filmWorldProviderMock
-                .Setup(x => x.GetMovieDetailsAsync("fw1"))
+                .Setup(x => x.GetMovieDetailsAsync("1"))
                 .ThrowsAsync(new Exception("API Error"));
 
             // Act & Assert
             await Assert.ThrowsAsync<InvalidOperationException>(
-                () => _sut.GetMovieBestPriceAsync(providers)
+                () => _sut.GetMovieBestPriceAsync("1")
             );
         }
 

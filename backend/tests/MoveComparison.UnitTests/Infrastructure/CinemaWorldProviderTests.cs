@@ -118,7 +118,7 @@ namespace MoveComparison.UnitTests.Infrastructure
             );
 
             // Act
-            var result = await _sut.GetMovieDetailsAsync("cw0086190");
+            var result = await _sut.GetMovieDetailsAsync("0086190");
 
             // Assert
             Assert.Equal("cw0086190", result.ID);
@@ -148,14 +148,14 @@ namespace MoveComparison.UnitTests.Infrastructure
         {
             // Arrange
             SetupMockHttpResponse<object>(
-                "/api/cinemaworld/movie/fw1",
+                "/api/cinemaworld/movie/cw1",
                 HttpStatusCode.InternalServerError,
                 null
             );
 
             // Act & Assert
             await Assert.ThrowsAsync<ProviderException>(
-                () => _sut.GetMovieDetailsAsync("fw1")
+                () => _sut.GetMovieDetailsAsync("1")
             );
         }
 

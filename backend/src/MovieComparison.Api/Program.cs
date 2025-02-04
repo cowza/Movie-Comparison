@@ -52,11 +52,15 @@ app.Run();
 
 static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
 {
-    return Policy<HttpResponseMessage>
+    var timeoutPolicy = Policy.TimeoutAsync<HttpResponseMessage>(10); // 10 seconds timeout
+
+    var retryPolicy = Policy<HttpResponseMessage>
         .Handle<HttpRequestException>() // Handle exceptions like network failures
         .OrResult(r => !r.IsSuccessStatusCode) // Retry on non-success HTTP status codes
         .RetryAsync(3, onRetry: (outcome, retryCount, context) =>
         {
             Console.WriteLine($"Retry {retryCount} for {context.OperationKey}");
         });
+
+    return Policy.WrapAsync(retryPolicy, timeoutPolicy);
 }

@@ -36,16 +36,16 @@ namespace MovieComparison.Api.Controllers
 
         [HttpPost("prices")]
         public async Task<ActionResult<MoviePriceDto>> GetMoviePrices(
-            [FromBody] IEnumerable<ProviderDto> providers)
+            [FromQuery] string id)
         {
-            if (!providers?.Any() ?? true)
+            if (string.IsNullOrWhiteSpace(id))
             {
-                return BadRequest("No providers specified");
+                return BadRequest("No id specified");
             }
 
             try
             {
-                var moviePrice = await _movieService.GetMovieBestPriceAsync(providers);
+                var moviePrice = await _movieService.GetMovieBestPriceAsync(id);
                 return Ok(moviePrice);
             }
             catch (InvalidOperationException ex)

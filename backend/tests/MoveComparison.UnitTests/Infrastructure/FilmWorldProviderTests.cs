@@ -118,7 +118,7 @@ namespace MoveComparison.UnitTests.Infrastructure
             );
 
             // Act
-            var result = await _sut.GetMovieDetailsAsync("fw0086190");
+            var result = await _sut.GetMovieDetailsAsync("0086190");
 
             // Assert
             Assert.Equal("fw0086190", result.ID);
@@ -155,7 +155,7 @@ namespace MoveComparison.UnitTests.Infrastructure
 
             // Act & Assert
             await Assert.ThrowsAsync<ProviderException>(
-                () => _sut.GetMovieDetailsAsync("fw1")
+                () => _sut.GetMovieDetailsAsync("1")
             );
         }
 

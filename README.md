@@ -11,7 +11,8 @@ A web application that compares movie prices across different providers.
 - Movie prices update daily (caching implemented)
 - Users select movies from a dropdown interface
 - Movie information displayed in card format showing available providers
-- Clear indication of best price provider
+- All providers prefix use a 2 letter movie prefix then use the same movie id.
+- All providers return the same list of movies
 - Provider APIs may be unstable (retry mechanism implemented)
 - Partial data display continues if some provider API calls fail
 
