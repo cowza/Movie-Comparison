@@ -11,16 +11,12 @@ import {
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 
-interface Provider {
-    name: string;
-    id: string;
-}
-
 interface Movie {
     title: string;
     year: string;
     poster: string;
-    providers: Provider[];
+    id: string;
+    providers: string;
 }
 
 interface BestPrice {
@@ -57,17 +53,16 @@ const MovieSelector = () => {
         fetchMovies();
     }, []);
 
-    const fetchBestPrice = async (providers: Provider[]) => {
+    const fetchBestPrice = async (id: string) => {
         setLoadingPrice(true);
         setBestPrice(null);
 
         try {
-            const response = await fetch('/api/movies/prices', {
+            const response = await fetch(`/api/movies/prices?id=${id}`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                 },
-                body: JSON.stringify(providers),
             });
 
             if (!response.ok) {
@@ -89,7 +84,7 @@ const MovieSelector = () => {
         setImageError(false);
 
         if (movie) {
-            fetchBestPrice(movie.providers);
+            fetchBestPrice(movie.id);
         }
     };
 
@@ -128,13 +123,13 @@ const MovieSelector = () => {
                                     <h3 className="font-semibold">{selectedMovie.title} ({selectedMovie.year})</h3>
                                     <h3 className="font-semibold">Available on</h3>
                                     <div className="flex flex-wrap gap-2">
-                                        {selectedMovie.providers.map((provider) => (
+                                        {selectedMovie.providers.split(';').map((provider, index) => (
                                             <Badge
-                                                key={provider.id}
+                                                key={index}
                                                 variant="secondary"
                                                 className="capitalize"
                                             >
-                                                {provider.name}
+                                                {provider}
                                             </Badge>
                                         ))}
                                     </div>

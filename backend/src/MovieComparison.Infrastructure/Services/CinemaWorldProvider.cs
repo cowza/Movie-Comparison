@@ -14,6 +14,7 @@ public class CinemaWorldProvider : IExternalMovieProvider
     private readonly ExternalApiSettings _settings;
 
     public string ProviderName => "cinemaworld";
+    public string ProviderIDPrefix => "cw";
 
     public CinemaWorldProvider(
         HttpClient httpClient,
@@ -62,7 +63,7 @@ public class CinemaWorldProvider : IExternalMovieProvider
     {
         try
         {
-            var response = await _httpClient.GetAsync($"/api/{ProviderName}/movie/{movieId}");
+            var response = await _httpClient.GetAsync($"/api/{ProviderName}/movie/{ProviderIDPrefix + movieId}");
             response.EnsureSuccessStatusCode();
 
             var content = await response.Content.ReadFromJsonAsync<ExternalMovieDetailsResponse>();

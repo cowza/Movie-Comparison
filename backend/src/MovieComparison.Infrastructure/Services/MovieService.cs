@@ -71,11 +71,8 @@ public class MovieService : IMovieService
                 Title = g.First().Title,
                 Year = g.First().Year,
                 Poster = g.First().Poster,
-                Providers = g.Select(m => new ProviderDto
-                {
-                    Name = m.Provider,
-                    ID = m.ID
-                }).ToList()
+                ID = g.First().ID.Substring(2),
+                Providers = string.Join(";", g.Select(m => m.Provider))
             })
             .ToList();
 
@@ -88,10 +85,9 @@ public class MovieService : IMovieService
         return groupedMovies;
     }
 
-    public async Task<MoviePriceDto> GetMovieBestPriceAsync(IEnumerable<ProviderDto> providers)
+    public async Task<MoviePriceDto> GetMovieBestPriceAsync(string id)
     {
-        var providerId = string.Join("_", providers.Select(p => p.ID).OrderBy(id => id));
-        var cacheKey = $"movie_prices_{providerId}";
+        var cacheKey = $"movie_prices_{id}";
 
         // Try to get from cache first
         if (_cache.TryGetValue(cacheKey, out MoviePriceDto cachedDetails))
@@ -101,27 +97,18 @@ public class MovieService : IMovieService
         }
 
         // Fetch prices from each provider concurrently
-        var priceTasks = providers.Select(async providerDto =>
+        var priceTasks = _providers.Select(async provider =>
         {
-            var provider = _providers.FirstOrDefault(p =>
-                p.ProviderName.Equals(providerDto.Name, StringComparison.OrdinalIgnoreCase));
-
-            if (provider == null)
-            {
-                _logger.LogWarning("Provider {ProviderName} not found", providerDto.Name);
-                return (Success: false, Details: (MovieDetails)null, Provider: providerDto.Name);
-            }
-
             try
             {
-                var details = await provider.GetMovieDetailsAsync(providerDto.ID);
-                return (Success: true, Details: details, Provider: providerDto.Name);
+                var details = await provider.GetMovieDetailsAsync(id);
+                return (Success: true, Details: details, Provider: provider.ProviderName);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to fetch movie details from provider {Provider} for ID {MovieId}",
-                    providerDto.Name, providerDto.ID);
-                return (Success: false, Details: (MovieDetails)null, Provider: providerDto.Name);
+                    provider.ProviderName, id);
+                return (Success: false, Details: (MovieDetails)null, Provider: provider.ProviderName);
             }
         });
 
@@ -149,13 +136,13 @@ public class MovieService : IMovieService
         };
 
         // Only cache if we got successful responses from all requested providers
-        if (validResults.Count == providers.Count())
+        if (validResults.Count == _providers.Count())
         {
             var cacheOptions = new MemoryCacheEntryOptions()
                 .SetAbsoluteExpiration(TimeSpan.FromMinutes(CACHE_DURATION_MINUTES));
 
             _cache.Set(cacheKey, moviePriceDto, cacheOptions);
-            _logger.LogInformation("Cached prices for providers: {ProviderId}", providerId);
+            _logger.LogInformation("Cached prices for providers: {ProviderId}", id);
         }
 
         return moviePriceDto;

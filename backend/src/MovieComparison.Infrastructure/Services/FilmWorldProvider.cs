@@ -16,6 +16,7 @@ namespace MovieComparison.Infrastructure.Services
         private readonly ExternalApiSettings _settings;
 
         public string ProviderName => "filmworld";
+        public string ProviderIDPrefix => "fw";
 
         public FilmWorldProvider(
             HttpClient httpClient,
@@ -64,7 +65,7 @@ namespace MovieComparison.Infrastructure.Services
         {
             try
             {
-                var response = await _httpClient.GetAsync($"/api/{ProviderName}/movie/{movieId}");
+                var response = await _httpClient.GetAsync($"/api/{ProviderName}/movie/{ProviderIDPrefix + movieId}");
                 response.EnsureSuccessStatusCode();
 
                 var content = await response.Content.ReadFromJsonAsync<ExternalMovieDetailsResponse>();
