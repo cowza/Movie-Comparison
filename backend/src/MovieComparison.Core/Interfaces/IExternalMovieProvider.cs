@@ -1,11 +1,10 @@
 using MovieComparison.Core.Models;
 
-namespace MovieComparison.Core.Interfaces
+namespace MovieComparison.Core.Interfaces;
+
+public interface IExternalMovieProvider
 {
-    public interface IExternalMovieProvider
-    {
-        string ProviderName { get; }
-        Task<IEnumerable<Movie>> GetMoviesAsync();
-        Task<MovieDetails> GetMovieDetailsAsync(string movieId);
-    }
+    string ProviderName { get; }
+    Task<IReadOnlyList<ProviderMovie>> GetMoviesAsync(CancellationToken cancellationToken);
+    Task<decimal> GetPriceAsync(string movieId, CancellationToken cancellationToken);
 }

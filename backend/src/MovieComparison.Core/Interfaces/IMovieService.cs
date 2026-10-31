@@ -1,10 +1,11 @@
 using MovieComparison.Core.DTOs;
 
-namespace MovieComparison.Core.Interfaces
+namespace MovieComparison.Core.Interfaces;
+
+public interface IMovieService
 {
-    public interface IMovieService
-    {
-        Task<IEnumerable<MovieDto>> GetAllMoviesAsync();
-        Task<MoviePriceDto> GetMovieBestPriceAsync(string id);
-    }
+    /// <summary>Returns null when no provider has usable data yet.</summary>
+    MovieListDto? GetMovies();
+    OffersResult GetOffers(string id);
+    IReadOnlyList<ProviderStatus> GetProviderStatuses();
 }

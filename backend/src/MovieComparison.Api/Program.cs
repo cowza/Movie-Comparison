@@ -1,66 +1,80 @@
-using MovieComparison.Core.Interfaces;
-using MovieComparison.Infrastructure.Configuration;
-using MovieComparison.Infrastructure.Services;
-using Polly;
+using System.Text.Json.Serialization;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using MovieComparison.Api;
+using MovieComparison.Api.Endpoints;
+using MovieComparison.Infrastructure;
+using MovieComparison.Infrastructure.Snapshots;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
-builder.Services.AddControllers();
-builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddOpenApi();
+builder.Services.AddProblemDetails();
 
-// Configure caching
-builder.Services.AddMemoryCache();
+// Without this, decimals are described as "number or string" and the generated client gets a union.
+builder.Services.ConfigureHttpJsonOptions(options =>
+    options.SerializerOptions.NumberHandling = JsonNumberHandling.Strict);
 
-// Configure HTTP clients with Polly
-builder.Services.AddHttpClient<IExternalMovieProvider, CinemaWorldProvider>()
-    .AddPolicyHandler(GetRetryPolicy());
+builder.Services.AddMovieSnapshots(builder.Configuration);
 
-builder.Services.AddHttpClient<IExternalMovieProvider, FilmWorldProvider>()
-    .AddPolicyHandler(GetRetryPolicy());
+builder.Services.AddHealthChecks()
+    .AddCheck<SnapshotHealthCheck>("snapshots", tags: ["ready"]);
 
-// Register services
-builder.Services.AddScoped<IMovieService, MovieService>();
-
-// Configure ExternalApiSettings
-// This binds the configuration from both appsettings.json and environment variables
-builder.Services.Configure<ExternalApiSettings>(
-    builder.Configuration.GetSection("ExternalApiSettings"));
-
-var apiSettings = builder.Configuration.GetSection("ExternalApiSettings").Get<ExternalApiSettings>();
-if (string.IsNullOrEmpty(apiSettings?.BaseUrl) || string.IsNullOrEmpty(apiSettings?.ApiToken))
+builder.Services.AddRateLimiter(options =>
 {
-    throw new InvalidOperationException("ExternalApiSettings is not properly configured. Please check your configuration.");
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy(MovieEndpoints.RateLimitPolicy, context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+            _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = builder.Configuration.GetValue("RateLimiting:PermitsPerMinute", 120),
+                Window = TimeSpan.FromMinutes(1),
+            }));
+});
+
+var telemetry = builder.Services.AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("movie-comparison"))
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation())
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddHttpClientInstrumentation()
+        .AddMeter(ProviderRefresher.MeterName, "Polly"))
+    .WithLogging();
+
+if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+{
+    telemetry.UseOtlpExporter();
 }
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+app.UseExceptionHandler();
+app.UseStatusCodePages();
+
+app.UseDefaultFiles();
+app.UseStaticFiles();
+
+app.UseRateLimiter();
+
 if (app.Environment.IsDevelopment())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    app.MapOpenApi();
 }
 
-app.UseHttpsRedirection();
-app.UseRouting();
-app.MapControllers();
+app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/health/ready", new HealthCheckOptions { Predicate = check => check.Tags.Contains("ready") });
+
+app.MapMovieEndpoints();
+
+// Keep unknown API routes as 404s rather than handing them the SPA.
+app.MapFallback("/api/{**path}", () => Results.NotFound());
+app.MapFallbackToFile("index.html");
 
 app.Run();
-
-static IAsyncPolicy<HttpResponseMessage> GetRetryPolicy()
-{
-    var timeoutPolicy = Policy.TimeoutAsync<HttpResponseMessage>(10); // 10 seconds timeout
-
-    var retryPolicy = Policy<HttpResponseMessage>
-        .Handle<HttpRequestException>() // Handle exceptions like network failures
-        .OrResult(r => !r.IsSuccessStatusCode) // Retry on non-success HTTP status codes
-        .RetryAsync(3, onRetry: (outcome, retryCount, context) =>
-        {
-            Console.WriteLine($"Retry {retryCount} for {context.OperationKey}");
-        });
-
-    return Policy.WrapAsync(retryPolicy, timeoutPolicy);
-}
