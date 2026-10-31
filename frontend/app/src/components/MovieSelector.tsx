@@ -1,4 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
     Select,
     SelectContent,
@@ -10,166 +11,93 @@ import {
 } from "../components/ui/select";
 import { Card, CardContent } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
+import { fetchMovies, retryDelay, retryWhileLoading, type Movie } from '../api/client';
+import MovieOffers from './MovieOffers';
 
-interface Movie {
-    title: string;
-    year: string;
-    poster: string;
-    id: string;
-    providers: string;
-}
+const MovieCard = ({ movie }: { movie: Movie }) => {
+    const [imageError, setImageError] = useState(false);
 
-interface BestPrice {
-    provider: string;
-    price: number;
-}
+    return (
+        <Card className="mt-4">
+            <CardContent className="pt-4">
+                <div className="space-y-4">
+                    <div className="flex justify-between items-start">
+                        <div className="space-y-2">
+                            <h3 className="font-semibold">{movie.title} ({movie.year})</h3>
+                            <h3 className="font-semibold">Available on</h3>
+                            <div className="flex flex-wrap gap-2">
+                                {movie.providers.map(provider => (
+                                    <Badge
+                                        key={provider}
+                                        variant="secondary"
+                                        className="capitalize"
+                                    >
+                                        {provider}
+                                    </Badge>
+                                ))}
+                            </div>
+                        </div>
+                        {movie.poster && !imageError && (
+                            <img
+                                src={movie.poster}
+                                alt={movie.title}
+                                className="h-32 w-auto object-contain"
+                                onError={() => setImageError(true)}
+                            />
+                        )}
+                    </div>
+
+                    <MovieOffers movieId={movie.id} />
+                </div>
+            </CardContent>
+        </Card>
+    );
+};
 
 const MovieSelector = () => {
-    const [movies, setMovies] = useState<Movie[]>([]);
-    const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [priceError, setPriceError] = useState<string | null>(null);
-    const [imageError, setImageError] = useState<boolean>(false);
-    const [bestPrice, setBestPrice] = useState<BestPrice | null>(null);
-    const [loadingPrice, setLoadingPrice] = useState(false);
+    const [selectedId, setSelectedId] = useState<string | null>(null);
 
-    useEffect(() => {
-        const fetchMovies = async () => {
-            try {
-                const response = await fetch('/api/movies');
-                if (!response.ok) {
-                    throw new Error('Failed to fetch movies');
-                }
-                const data: Movie[] = await response.json();
-                setMovies(data);
-            } catch (err) {
-                setError(err instanceof Error ? err.message : 'Failed to fetch movies');
-            } finally {
-                setLoading(false);
-            }
-        };
+    const { data, failureReason, isPending } = useQuery({
+        queryKey: ['movies'],
+        queryFn: ({ signal }) => fetchMovies(signal),
+        refetchInterval: 60_000,
+        retry: retryWhileLoading,
+        retryDelay,
+    });
 
-        fetchMovies();
-    }, []);
-
-    const fetchBestPrice = async (id: string) => {
-        setLoadingPrice(true);
-        setBestPrice(null);
-
-        try {
-            const response = await fetch(`/api/movies/prices?id=${id}`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to fetch price');
-            }
-
-            const data: BestPrice = await response.json();
-            setBestPrice(data);
-        } catch (err) {
-            setPriceError(err instanceof Error ? err.message : 'Failed to fetch price');
-        } finally {
-            setLoadingPrice(false);
-        }
-    };
-
-    const handleMovieSelect = (value: string) => {
-        const movie = movies.find(m => m.title === value);
-        setSelectedMovie(movie || null);
-        setImageError(false);
-
-        if (movie) {
-            fetchBestPrice(movie.id);
-        }
-    };
-
-    if (loading) {
-        return <div className="text-center p-4">Loading movies...</div>;
+    if (isPending) {
+        return (
+            <div className="text-center p-4">
+                {failureReason ? 'Movies are loading from our providers. Trying again...' : 'Loading movies...'}
+            </div>
+        );
     }
 
-    if (error) {
-        return <div className="text-red-500 p-4">Error: {error}</div>;
+    if (!data) {
+        return <div className="text-red-500 p-4">Error: Failed to fetch movies</div>;
     }
+
+    const movie = data.movies.find(m => m.id === selectedId);
 
     return (
         <div className="w-full max-w-md mx-auto p-4">
-            <Select onValueChange={handleMovieSelect}>
+            <Select value={selectedId ?? undefined} onValueChange={setSelectedId}>
                 <SelectTrigger className="w-full">
                     <SelectValue placeholder="Select a movie" />
                 </SelectTrigger>
                 <SelectContent>
                     <SelectGroup>
                         <SelectLabel>Movies</SelectLabel>
-                        {movies.map((movie) => (
-                            <SelectItem key={movie.title} value={movie.title}>
-                                {movie.title} ({movie.year})
+                        {data.movies.map(option => (
+                            <SelectItem key={option.id} value={option.id}>
+                                {option.title} ({option.year})
                             </SelectItem>
                         ))}
                     </SelectGroup>
                 </SelectContent>
             </Select>
 
-            {selectedMovie && (
-                <Card className="mt-4">
-                    <CardContent className="pt-4">
-                        <div className="space-y-4">
-                            <div className="flex justify-between items-start">
-                                <div className="space-y-2">
-                                    <h3 className="font-semibold">{selectedMovie.title} ({selectedMovie.year})</h3>
-                                    <h3 className="font-semibold">Available on</h3>
-                                    <div className="flex flex-wrap gap-2">
-                                        {selectedMovie.providers.split(';').map((provider, index) => (
-                                            <Badge
-                                                key={index}
-                                                variant="secondary"
-                                                className="capitalize"
-                                            >
-                                                {provider}
-                                            </Badge>
-                                        ))}
-                                    </div>
-                                </div>
-                                {selectedMovie.poster && !imageError && (
-                                    <img
-                                        src={selectedMovie.poster}
-                                        alt={selectedMovie.title}
-                                        className="h-32 w-auto object-contain"
-                                        onError={() => setImageError(true)}
-                                    />
-                                )}
-                            </div>
-
-                            {loadingPrice && (
-                                <div className="text-center py-2">Finding best price...</div>
-                            )}
-
-                            {priceError && (
-                                <div className="text-red-500 p-4">Error: {priceError}</div>
-                            )}
-
-                            {bestPrice && (
-                                <div className="pt-4 border-t">
-                                    <div className="flex justify-between items-center">
-                                        <div className="space-y-1">
-                                            <div className="text-sm text-gray-500">Best price from</div>
-                                            <div className="font-medium capitalize">{bestPrice.provider}</div>
-                                        </div>
-
-                                        <div className="text-2xl font-bold">
-                                            ${bestPrice.price}
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    </CardContent>
-                </Card>
-            )}
+            {movie && <MovieCard key={movie.id} movie={movie} />}
         </div>
     );
 };
