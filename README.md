@@ -3,78 +3,80 @@
 ## Overview
 A web application that compares movie prices across different providers.
 
+A background worker refreshes each provider and keeps its last good data, and requests are answered
+from that snapshot. A slow or failing provider never delays a request, and every result says how
+current it is. [docs/DECISIONS.md](docs/DECISIONS.md) explains why, and lists the failure modes the
+tests hold it to.
+
 ## Requirements
 - Handle provider service interruptions gracefully
 - Secure API token management without public exposure
 
 ## Assumptions
-- Movie prices update daily (caching implemented)
+- Movie prices update daily
 - Users select movies from a dropdown interface
 - Movie information displayed in card format showing available providers
 - All providers prefix use a 2 letter movie prefix then use the same movie id.
-- All providers return the same list of movies
-- Provider APIs may be unstable (retry mechanism implemented)
-- Partial data display continues if some provider API calls fail
+- Providers may not sell the same movies
+- Provider APIs may be unstable
 
-## Development Setup
+## Run It Without A Token
 The following instructions assume WSL with Docker installed (tested with Docker Desktop Windows)
 
+```bash
+make demo
+```
+
+This runs the production image at http://localhost:8080 against a fake provider API, so you can break
+a provider and watch the app respond:
+
+```bash
+curl -X POST localhost:8081/__chaos/filmworld/mode/error   # or hang, flaky, garbage, empty, prices-error, ok
+curl -X POST localhost:8081/__chaos/filmworld/price/0076759/9.99
+curl -X POST localhost:8081/__chaos/reset
+make demo-down
+```
+
+## Development Setup
 1. Configure Environment
    ```bash
-   # Copy environment file
-   cp .env.example /docker/secrets/local-env
+   mkdir -p docker/secrets
+   cp .env.example docker/secrets/local-env
+   ```
+   Then set `ExternalApiSettings__BaseUrl` and `ExternalApiSettings__ApiToken` in that file. It's
+   ignored by git.
+
+2. Check the token works
+   ```bash
+   make check-upstream
    ```
 
-2. Example local-env configuration:
-   ```ini
-   ASPNETCORE_ENVIRONMENT=Development
-   ASPNETCORE_URLS=http://+:5000
-   VSTEST_HOST_DEBUG=1
-   ExternalApiSettings__BaseUrl=https://myapidomain.azurewebsites.net
-   ExternalApiSettings__ApiToken=123456
-   ```
-
-3. Deploy locally:
+3. Start the hot-reloading stack at http://localhost:3000
    ```bash
    make deploy-local
    ```
 
-## Production Setup
-Instructions for deploying to a remote environment
+## Testing
+```bash
+make test
+```
 
-1. Configure Environment
-   ```bash
-   # Copy environment file
-   cp .env.example /docker/secrets/remote-env
-   ```
+The backend tests run in Docker. Local work outside Docker needs the .NET 10 SDK and Bun.
 
-2. Example remote-env configuration:
-   ```ini
-   ASPNETCORE_ENVIRONMENT=Production
-   ASPNETCORE_URLS=http://+:5000
-   ExternalApiSettings__BaseUrl=https://myapidomain.azurewebsites.net
-   ExternalApiSettings__ApiToken=123456
-   VIRTUAL_HOST=subdomain.domain.com
-   VIRTUAL_PORT=80
-   LETSENCRYPT_HOST=subdomain.domain.com
-   LETSENCRYPT_EMAIL=myemail@domain.com
-   ```
+After changing the API, run `make openapi` to update `backend/openapi/v1.json` and the generated
+frontend types. A test fails if they drift.
 
-3. Server Setup
-   - Create a DigitalOcean droplet following their [official guide](https://docs.digitalocean.com/products/droplets/how-to/create/)
-   - Configure SSH key during installation
-   - Install Docker if not pre-installed using the [official Docker installation guide](https://docs.docker.com/engine/install/ubuntu/#install-using-the-repository)
+## Production
+CI tests every change, and publishes a single image to
+`ghcr.io/cowza/movie-comparison` from `master`. It serves both the API and the frontend on port 8080,
+so any container host will run it.
 
-4. DNS Configuration
-   - Create an A Name Record in your website's DNS settings
-   - Point the record to your DigitalOcean Droplet IP
+| Setting | Value |
+| --- | --- |
+| `ExternalApiSettings__BaseUrl` | Provider API URL |
+| `ExternalApiSettings__ApiToken` | Provider API token, from the host's secret store |
+| `ASPNETCORE_FORWARDEDHEADERS_ENABLED` | `true` behind the host's proxy, so rate limits apply per client. Leave it off if the container is directly exposed |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional. Sends traces, metrics and logs to a collector |
 
-5. Configure Remote Context
-   ```bash
-   docker context create remote --docker "host=ssh://user@subdomain.domain.com"
-   ```
-
-6. Deploy to Production
-   ```bash
-   make deploy-remote
-   ```
+Point the host's probes at `/health/live` and `/health/ready`. Readiness stays healthy while serving
+stale data during an outage, and only fails when there's no data at all.
