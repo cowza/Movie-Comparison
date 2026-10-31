@@ -54,7 +54,7 @@ public sealed class TestStack : IAsyncDisposable
             ["ProviderResilience:TotalTimeout"] = "00:00:05",
             ["ProviderResilience:RetryDelay"] = "00:00:00.001",
             // Most tests are about what the retries do, so the breaker stays out of the way unless asked for.
-            ["ProviderResilience:CircuitMinimumThroughput"] = "100000",
+            ["ProviderResilience:CircuitMinimumThroughput"] = "1000",
             ["RateLimiting:PermitsPerMinute"] = "100000",
         };
         foreach (var (key, value) in settings ?? [])

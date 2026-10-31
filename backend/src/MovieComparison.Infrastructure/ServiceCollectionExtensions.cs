@@ -41,18 +41,24 @@ public static class ServiceCollectionExtensions
     {
         // Each provider needs its own client name. Sharing one stacks every provider's handlers
         // onto both clients, and shares a circuit breaker between them.
-        services.AddHttpClient(provider.Name, (serviceProvider, client) =>
+        var client = services.AddHttpClient(provider.Name, (serviceProvider, client) =>
             {
                 var settings = serviceProvider.GetRequiredService<IOptions<ExternalApiSettings>>().Value;
                 client.BaseAddress = new Uri(settings.BaseUrl);
                 client.DefaultRequestHeaders.Add("x-access-token", settings.ApiToken);
             })
-            .AddStandardResilienceHandler()
+            // A followed redirect would carry the token header to wherever it points.
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+
+        client.AddStandardResilienceHandler()
             .Configure((options, serviceProvider) =>
             {
                 var settings = serviceProvider.GetRequiredService<IOptions<ProviderResilienceSettings>>().Value;
                 ApplyResilience(options, settings);
             });
+
+        // Added after the resilience handler so it runs inside it.
+        client.AddHttpMessageHandler(() => new BufferResponseBodyHandler());
 
         services.AddSingleton<IExternalMovieProvider>(serviceProvider => new HttpMovieProvider(
             provider,
@@ -60,7 +66,7 @@ public static class ServiceCollectionExtensions
             serviceProvider.GetRequiredService<ILogger<HttpMovieProvider>>()));
     }
 
-    private static void ApplyResilience(HttpStandardResilienceOptions options, ProviderResilienceSettings settings)
+    public static void ApplyResilience(HttpStandardResilienceOptions options, ProviderResilienceSettings settings)
     {
         options.AttemptTimeout.Timeout = settings.AttemptTimeout;
         options.TotalRequestTimeout.Timeout = settings.TotalTimeout;
@@ -70,8 +76,9 @@ public static class ServiceCollectionExtensions
         options.CircuitBreaker.FailureRatio = settings.CircuitFailureRatio;
         options.CircuitBreaker.BreakDuration = settings.CircuitBreakDuration;
 
-        // The library requires the sampling window to span at least two attempt timeouts.
-        var minimumSampling = settings.AttemptTimeout * 2;
+        // A provider that hangs uses a full attempt timeout per failure, so the window has to fit
+        // enough of them to trip the breaker. This also covers the library's minimum of two.
+        var minimumSampling = settings.AttemptTimeout * (settings.CircuitMinimumThroughput + 1);
         if (options.CircuitBreaker.SamplingDuration < minimumSampling)
         {
             options.CircuitBreaker.SamplingDuration = minimumSampling;

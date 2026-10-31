@@ -54,8 +54,11 @@ These are the acceptance spec. Each row has a test in
 | Provider down from cold start | Reported in `unavailableProviders`, never hidden |
 | Cheaper provider goes down | Its last price stays, flagged stale |
 | Provider hangs | Requests unaffected. Timeouts are retried |
+| Response body stalls after the headers | Treated the same as a hang |
 | Provider flaky | Retries succeed within one refresh |
-| Provider keeps failing | Circuit breaker stops calling it |
+| Provider keeps failing or hanging | Circuit breaker stops calling it |
+| Every price fails but the catalogue loads | Counts as a failed refresh, not as data |
+| One price keeps failing | That price ages on its own, and the refresh interval doesn't change |
 | Both down, nothing loaded | 503 with `Retry-After`. Not ready, but live |
 | Both down, data loaded | Last good data served. Ready, but degraded |
 | Provider recovers | Next refresh restores the full result |
@@ -65,3 +68,4 @@ These are the acceptance spec. Each row has a test in
 | Invalid price | Last good price kept, never shown as null |
 | Empty or garbage catalogue | Snapshot kept |
 | Token rejected | Not retried, and never exposed |
+| Upstream redirects | Not followed, so the token can't leave the provider |

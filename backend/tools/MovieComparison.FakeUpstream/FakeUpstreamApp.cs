@@ -50,6 +50,12 @@ public static class FakeUpstreamApp
             return Results.Json(new { movie.Title, movie.Year, ID = id, Type = "movie", Price = price }, options: null);
         });
 
+        app.MapGet("/api/{provider}/redirect-target", (string provider, HttpContext context) =>
+        {
+            state.Record(context.Request.Path);
+            return Results.Json(new { Movies = Array.Empty<object>() }, options: null);
+        });
+
         app.MapPost("/__chaos/{provider}/mode/{mode}", (string provider, string mode) =>
         {
             if (provider == "all")
@@ -98,6 +104,14 @@ public static class FakeUpstreamApp
             case FakeUpstreamState.Hang:
                 await Task.Delay(Timeout.Infinite, context.RequestAborted);
                 return Results.Empty;
+            case FakeUpstreamState.StallBody:
+                context.Response.ContentType = "application/json";
+                context.Response.ContentLength = 1024;
+                await context.Response.Body.FlushAsync(context.RequestAborted);
+                await Task.Delay(Timeout.Infinite, context.RequestAborted);
+                return Results.Empty;
+            case FakeUpstreamState.Redirect:
+                return Results.Redirect($"/api/{provider}/redirect-target");
             case FakeUpstreamState.Garbage:
                 return Results.Text("<html>Service Unavailable</html>", "application/json");
             default:

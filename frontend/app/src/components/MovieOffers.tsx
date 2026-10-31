@@ -24,7 +24,7 @@ const StaleLabel = ({ offer }: { offer: Offer }) =>
 
 const MovieOffers = ({ movieId }: { movieId: string }) => {
     // Keyed by movie, so a slow response for one movie can never land on another.
-    const { data, error, failureReason, isPending } = useQuery({
+    const { data, error, failureReason, isPending, isRefetchError } = useQuery({
         queryKey: ['offers', movieId],
         queryFn: ({ signal }) => fetchOffers(movieId, signal),
         refetchInterval: 60_000,
@@ -45,12 +45,15 @@ const MovieOffers = ({ movieId }: { movieId: string }) => {
     const { bestOffer, offers, complete, unavailableProviders } = data;
     const otherOffers = offers.filter(offer => offer.provider !== bestOffer.provider);
 
+    // Staleness is worked out on the server, so it stops updating if this page can't reach it.
+    const refreshFailed = isRefetchError || failureReason !== null;
+
     return (
         <div className="pt-4 border-t space-y-3">
             <div className="flex justify-between items-center">
                 <div className="space-y-1">
                     <div className="text-sm text-gray-500">
-                        {complete ? 'Best price from' : 'Lowest known price from'}
+                        {complete && !refreshFailed ? 'Best price from' : 'Lowest known price from'}
                     </div>
                     <div className="font-medium capitalize">{bestOffer.provider}</div>
                     <StaleLabel offer={bestOffer} />
@@ -69,7 +72,11 @@ const MovieOffers = ({ movieId }: { movieId: string }) => {
                 </div>
             ))}
 
-            {!complete && (
+            {refreshFailed ? (
+                <div role="status" className="text-sm rounded bg-amber-50 text-amber-800 p-2">
+                    We couldn't refresh these prices, so they may be out of date.
+                </div>
+            ) : !complete && (
                 <div role="status" className="text-sm rounded bg-amber-50 text-amber-800 p-2">
                     We couldn't confirm current prices from {unavailableProviders.map(capitalize).join(' and ')}, so
                     this may not be the lowest price.

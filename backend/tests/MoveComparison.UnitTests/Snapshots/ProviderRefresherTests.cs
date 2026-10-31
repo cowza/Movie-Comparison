@@ -60,7 +60,8 @@ public class ProviderRefresherTests
 
         var refreshed = await _refresher.RefreshAsync(_provider, CancellationToken.None);
 
-        Assert.False(refreshed);
+        // One bad price shouldn't put the whole catalogue on the fast retry path.
+        Assert.True(refreshed);
         Assert.Equal(new ProviderOffer(10m, firstAsOf), Snapshot.Movies["1"].Offer);
         Assert.Equal(12m, Snapshot.Movies["2"].Offer!.Price);
     }
@@ -68,11 +69,27 @@ public class ProviderRefresherTests
     [Fact]
     public async Task Refresh_WhenPriceFailsWithNoHistory_ListsTheMovieWithoutAnOffer()
     {
-        _provider.Price = _ => throw new ProviderException("down");
+        _provider.Price = id => id == "1" ? throw new ProviderException("down") : 12m;
 
         await _refresher.RefreshAsync(_provider, CancellationToken.None);
 
         Assert.Null(Snapshot.Movies["1"].Offer);
+        Assert.NotNull(Snapshot.Movies["2"].Offer);
+    }
+
+    [Fact]
+    public async Task Refresh_WhenEveryPriceFails_IsAFailedCycle()
+    {
+        await _refresher.RefreshAsync(_provider, CancellationToken.None);
+        var successAt = Snapshot.LastSuccessAt;
+        _time.Advance(TimeSpan.FromMinutes(5));
+        _provider.Price = _ => throw new ProviderException("down");
+
+        var refreshed = await _refresher.RefreshAsync(_provider, CancellationToken.None);
+
+        Assert.False(refreshed);
+        Assert.Equal(successAt, Snapshot.LastSuccessAt);
+        Assert.Equal(_time.GetUtcNow(), Snapshot.LastFailureAt);
     }
 
     [Fact]

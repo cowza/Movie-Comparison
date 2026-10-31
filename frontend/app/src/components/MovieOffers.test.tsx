@@ -65,6 +65,23 @@ describe('MovieOffers', () => {
         expect(screen.queryByText('Best price from')).toBeNull();
     });
 
+    it('stops vouching for a price once a refresh fails', async () => {
+        let calls = 0;
+        mockFetch(async () => ++calls === 1
+            ? json(offersFor(offer('filmworld', 20)))
+            : json({}, 500));
+
+        const client = new QueryClient();
+        render(tree(client, '1'));
+        expect(await screen.findByText('Best price from')).toBeTruthy();
+
+        await act(async () => { await client.refetchQueries(); });
+
+        expect((await screen.findByRole('status')).textContent).toContain('out of date');
+        expect(screen.getByText('Lowest known price from')).toBeTruthy();
+        expect(screen.getByText('$20.00')).toBeTruthy();
+    });
+
     it('labels a stale offer with its age', async () => {
         mockFetch(async () => json({
             ...offersFor(offer('filmworld', 20, true), offer('cinemaworld', 30)),

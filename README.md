@@ -75,8 +75,8 @@ so any container host will run it.
 | --- | --- |
 | `ExternalApiSettings__BaseUrl` | Provider API URL |
 | `ExternalApiSettings__ApiToken` | Provider API token, from the host's secret store |
-| `ASPNETCORE_FORWARDEDHEADERS_ENABLED` | `true` behind the host's proxy, so rate limits apply per client. Leave it off if the container is directly exposed |
+| `ASPNETCORE_FORWARDEDHEADERS_ENABLED` | `true` when exactly one trusted proxy sits in front and the container can't be reached directly, so rate limits apply per client. With more than one hop, clients share a limit. If the container is reachable directly, leave it off, or clients can bypass the limit by forging the header |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Optional. Sends traces, metrics and logs to a collector |
 
-Point the host's probes at `/health/live` and `/health/ready`. Readiness stays healthy while serving
-stale data during an outage, and only fails when there's no data at all.
+Point the host's probes at `/health/live` and `/health/ready`. Readiness stays up while serving stale
+data during an outage, and only fails when no provider has usable prices.

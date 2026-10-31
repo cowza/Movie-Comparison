@@ -10,6 +10,8 @@ public sealed class FakeUpstreamState
     public const string Ok = "ok";
     public const string Error = "error";
     public const string Hang = "hang";
+    public const string StallBody = "stall-body";
+    public const string Redirect = "redirect";
     public const string Garbage = "garbage";
     public const string Empty = "empty";
     public const string Flaky = "flaky";

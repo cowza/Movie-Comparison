@@ -123,6 +123,16 @@ public class FailureModeTests
     }
 
     [Fact]
+    public async Task StalledResponseBody_TimesOutAndRetriesInsteadOfWedgingTheRefresh()
+    {
+        await using var stack = await TestStack.StartAsync(state => state.SetMode("filmworld", FakeUpstreamState.StallBody));
+
+        await stack.WaitForAsync(["filmworld"]);
+
+        Assert.Equal(4, stack.Upstream.Hits("filmworld"));
+    }
+
+    [Fact]
     public async Task FlakyProvider_SucceedsThroughRetries()
     {
         await using var stack = await TestStack.StartAsync(state => state.SetMode("filmworld", FakeUpstreamState.Flaky));
@@ -131,6 +141,29 @@ public class FailureModeTests
 
         Assert.Equal("filmworld", offers.BestOffer.Provider);
         Assert.True(offers.Complete);
+    }
+
+    [Fact]
+    public async Task EveryPriceFailingFromColdStart_CountsAsNoData()
+    {
+        await using var stack = await TestStack.StartAsync(state => state.SetAllModes(FakeUpstreamState.PricesError));
+
+        var list = await stack.Client.GetAsync("/api/movies");
+        var ready = await stack.Client.GetAsync("/health/ready");
+
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, list.StatusCode);
+        Assert.Equal(HttpStatusCode.ServiceUnavailable, ready.StatusCode);
+    }
+
+    [Fact]
+    public async Task EveryPriceFailingForOneProvider_IsReportedAsUnavailable()
+    {
+        await using var stack = await TestStack.StartAsync(state => state.SetMode("filmworld", FakeUpstreamState.PricesError));
+
+        var list = await stack.Client.GetFromJsonAsync<MovieListDto>("/api/movies");
+
+        Assert.False(list!.Complete);
+        Assert.Equal(["filmworld"], list.UnavailableProviders);
     }
 
     [Fact]
@@ -289,6 +322,30 @@ public class FailureModeTests
     }
 
     [Fact]
+    public async Task CircuitBreaker_AlsoTripsOnHangs()
+    {
+        await using var stack = await TestStack.StartAsync(
+            state => state.SetMode("filmworld", FakeUpstreamState.Hang),
+            new() { ["ProviderResilience:CircuitMinimumThroughput"] = "4" });
+
+        await stack.WaitForAsync(["filmworld"]);
+        Assert.Equal(4, stack.Upstream.Hits("filmworld"));
+
+        await stack.RefreshAsync();
+
+        Assert.Equal(4, stack.Upstream.Hits("filmworld"));
+    }
+
+    [Fact]
+    public async Task UpstreamRedirect_IsNotFollowedSoTheTokenStaysWithTheProvider()
+    {
+        await using var stack = await TestStack.StartAsync(state => state.SetMode("filmworld", FakeUpstreamState.Redirect));
+
+        Assert.DoesNotContain(stack.Upstream.Requests, path => path.EndsWith("redirect-target"));
+        Assert.Equal(1, stack.Upstream.Hits("filmworld"));
+    }
+
+    [Fact]
     public async Task RateLimit_RejectsExcessRequests()
     {
         await using var stack = await TestStack.StartAsync(settings: new() { ["RateLimiting:PermitsPerMinute"] = "2" });
@@ -315,9 +372,11 @@ public class FailureModeTests
     [Fact]
     public async Task MissingToken_FailsAtStartup()
     {
-        await Assert.ThrowsAnyAsync<Exception>(async () =>
+        var failure = await Record.ExceptionAsync(async () =>
         {
             await using var stack = await TestStack.StartAsync(settings: new() { ["ExternalApiSettings:ApiToken"] = "" });
         });
+
+        Assert.Contains("ApiToken", failure?.ToString());
     }
 }
