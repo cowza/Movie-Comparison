@@ -1,34 +1,38 @@
-.PHONY: deploy-remote
-deploy-remote: load-remote-backend load-remote-frontend
-	@echo "Deploying to remote..."
-	@docker --context remote compose -f docker/docker-compose.yml --profile remote up --force-recreate -d
+COMPOSE := docker compose -f docker/docker-compose.yml
 
+.PHONY: test
+test: test-backend test-frontend
+
+# Runs in Docker so the only local requirement is Docker itself.
+.PHONY: test-backend
+test-backend:
+	@docker build --target backend-test --progress plain .
+
+.PHONY: test-frontend
+test-frontend:
+	@cd frontend/app && bun install --frozen-lockfile && bun run lint && bun run test
+
+# Regenerates the OpenAPI document and frontend types after an API change. Needs the .NET 10 SDK.
+.PHONY: openapi
+openapi:
+	@cd backend && UPDATE_OPENAPI=1 dotnet test tests/MovieComparison.IntegrationTests --filter OpenApiContractTests
+	@cd frontend/app && bun run gen:api
+
+# The production image against the fake upstream. No token needed: http://localhost:8080
+.PHONY: demo
+demo:
+	@$(COMPOSE) --profile demo up --build --force-recreate -d
+
+.PHONY: demo-down
+demo-down:
+	@$(COMPOSE) --profile demo down
+
+# Hot-reloading development stack against the real API: http://localhost:3000
 .PHONY: deploy-local
 deploy-local:
-	@docker --context default compose -f docker/docker-compose.yml --profile local up --build --force-recreate -d
+	@$(COMPOSE) --profile local up --build --force-recreate -d
 
-.PHONY: build-remote-backend
-build-remote-backend:
-	@echo "Building backend image for remote..."
-	@docker build --secret id=remote-env,src=docker/secrets/remote-env -f backend/Dockerfile -t backend ./backend
-
-.PHONY: build-remote-frontend
-build-remote-frontend:
-	@echo "Building frontend image for remote..."
-	@docker build --secret id=remote-env,src=docker/secrets/remote-env -f frontend/app/Dockerfile -t frontend ./frontend/app
-
-.PHONY: load-remote-backend
-load-remote-backend: build-remote-backend
-	@echo "Saving backend image..."
-	@docker image save -o /tmp/backend.tar backend:latest
-	@echo "Uploading backend image to remote..."
-	@docker --context remote image load -i /tmp/backend.tar
-	@rm -f /tmp/backend.tar
-
-.PHONY: load-remote-frontend
-load-remote-frontend: build-remote-frontend
-	@echo "Saving frontend image..."
-	@docker image save -o /tmp/frontend.tar frontend:latest
-	@echo "Uploading frontend image to remote..."
-	@docker --context remote image load -i /tmp/frontend.tar
-	@rm -f /tmp/frontend.tar
+# Tests the real API with the token in docker/secrets/local-env
+.PHONY: check-upstream
+check-upstream:
+	@tools/check-upstream.sh docker/secrets/local-env

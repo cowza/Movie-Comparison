@@ -1,0 +1,9 @@
+.git
+.github
+docker
+docs
+tools
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
