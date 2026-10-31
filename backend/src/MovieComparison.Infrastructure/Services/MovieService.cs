@@ -1,150 +1,118 @@
-using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using MovieComparison.Core.DTOs;
 using MovieComparison.Core.Interfaces;
 using MovieComparison.Core.Models;
+using MovieComparison.Infrastructure.Configuration;
 
 namespace MovieComparison.Infrastructure.Services;
 
-public class MovieService : IMovieService
+/// <summary>Answers requests from snapshots alone, so a request never waits on a provider.</summary>
+public sealed class MovieService(
+    IEnumerable<IExternalMovieProvider> providers,
+    ISnapshotStore store,
+    IOptions<SnapshotSettings> settings,
+    TimeProvider timeProvider) : IMovieService
 {
-    private readonly IEnumerable<IExternalMovieProvider> _providers;
-    private readonly IMemoryCache _cache;
-    private readonly ILogger<MovieService> _logger;
-    private const int CACHE_DURATION_MINUTES = 5;
+    private readonly IReadOnlyList<string> _providerNames = providers.Select(p => p.ProviderName).ToList();
+    private readonly SnapshotSettings _settings = settings.Value;
 
-    public MovieService(
-        IEnumerable<IExternalMovieProvider> providers,
-        IMemoryCache cache,
-        ILogger<MovieService> logger)
+    public MovieListDto? GetMovies()
     {
-        _providers = providers;
-        _cache = cache;
-        _logger = logger;
-    }
-
-    public async Task<IEnumerable<MovieDto>> GetAllMoviesAsync()
-    {
-        const string cacheKey = "all_movies";
-
-        // Try to get from cache first
-        if (_cache.TryGetValue(cacheKey, out IEnumerable<MovieDto> cachedMovies))
-        {
-            _logger.LogInformation("Returning movies from cache");
-            return cachedMovies; 
-        }
-
-        // Fetch from all providers concurrently
-        var providerTasks = _providers.Select(async provider =>
-        {
-            try
-            {
-                var movies = await provider.GetMoviesAsync();
-                return (Success: true, Movies: movies, Provider: provider.ProviderName);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to fetch movies from provider {Provider}", provider.ProviderName);
-                return (Success: false, Movies: Enumerable.Empty<Movie>(), Provider: provider.ProviderName);
-            }
-        });
-
-        var results = await Task.WhenAll(providerTasks);
-
-        // Combine all successful results
-        var allMovies = results
-            .Where(r => r.Success)
-            .SelectMany(r => r.Movies)
+        var now = timeProvider.GetUtcNow();
+        var snapshots = _providerNames
+            .Select(store.Get)
+            .OfType<ProviderSnapshot>()
+            .Where(s => HasData(s, now))
             .ToList();
 
-        if (!allMovies.Any())
+        if (snapshots.Count == 0)
         {
-            _logger.LogWarning("No movies retrieved from any provider");
-            return Enumerable.Empty<MovieDto>();
+            return null;
         }
 
-        // Group by title to handle duplicates across providers
-        var groupedMovies = allMovies
-            .GroupBy(m => m.Title)
-            .Select(g => new MovieDto
+        var movies = snapshots
+            .SelectMany(s => s.Movies.Values.Select(m => (s.Provider, m.Movie)))
+            .GroupBy(entry => entry.Movie.Id)
+            .Select(group =>
             {
-                Title = g.First().Title,
-                Year = g.First().Year,
-                Poster = g.First().Poster,
-                ID = g.First().ID.Substring(2),
-                Providers = string.Join(";", g.Select(m => m.Provider))
+                var movie = group.First().Movie;
+                return new MovieDto(movie.Id, movie.Title, movie.Year, movie.Poster, group.Select(e => e.Provider).ToList());
             })
+            .OrderBy(movie => movie.Title)
             .ToList();
 
-        // Cache the results
-        var cacheOptions = new MemoryCacheEntryOptions()
-            .SetAbsoluteExpiration(TimeSpan.FromMinutes(CACHE_DURATION_MINUTES));
-
-        _cache.Set(cacheKey, groupedMovies, cacheOptions);
-
-        return groupedMovies;
+        var unavailable = _providerNames.Where(name => !IsFresh(store.Get(name), now)).ToList();
+        return new MovieListDto(movies, unavailable.Count == 0, unavailable);
     }
 
-    public async Task<MoviePriceDto> GetMovieBestPriceAsync(string id)
+    public OffersResult GetOffers(string id)
     {
-        var cacheKey = $"movie_prices_{id}";
+        var now = timeProvider.GetUtcNow();
+        var offers = new List<OfferDto>();
+        var unavailable = new List<string>();
+        ProviderMovie? movie = null;
 
-        // Try to get from cache first
-        if (_cache.TryGetValue(cacheKey, out MoviePriceDto cachedDetails))
+        foreach (var name in _providerNames)
         {
-            _logger.LogInformation("Returning cached prices for providers");
-            return cachedDetails;
-        }
+            var snapshot = store.Get(name);
+            var entry = snapshot is not null && HasData(snapshot, now) ? snapshot.Movies.GetValueOrDefault(id) : null;
 
-        // Fetch prices from each provider concurrently
-        var priceTasks = _providers.Select(async provider =>
-        {
-            try
+            if (entry is null)
             {
-                var details = await provider.GetMovieDetailsAsync(id);
-                return (Success: true, Details: details, Provider: provider.ProviderName);
+                // A fresh catalogue without this movie means the provider doesn't sell it.
+                // Without one we can't tell, so the result can't claim to be complete.
+                if (!IsFresh(snapshot, now))
+                {
+                    unavailable.Add(name);
+                }
+                continue;
             }
-            catch (Exception ex)
+
+            movie ??= entry.Movie;
+
+            if (entry.Offer is { } offer && now - offer.AsOf <= _settings.MaxDataAge)
             {
-                _logger.LogError(ex, "Failed to fetch movie details from provider {Provider} for ID {MovieId}",
-                    provider.ProviderName, id);
-                return (Success: false, Details: (MovieDetails)null, Provider: provider.ProviderName);
+                var stale = now - offer.AsOf > _settings.StaleAfter;
+                offers.Add(new OfferDto(name, offer.Price, offer.AsOf, stale));
+                if (stale)
+                {
+                    unavailable.Add(name);
+                }
             }
-        });
-
-        var results = await Task.WhenAll(priceTasks);
-
-        // Get successful results
-        var validResults = results
-            .Where(r => r.Success && r.Details != null)
-            .ToList();
-
-        if (!validResults.Any())
-        {
-            _logger.LogWarning("No prices retrieved from any provider");
-            throw new InvalidOperationException("Unable to retrieve prices from any provider");
+            else
+            {
+                unavailable.Add(name);
+            }
         }
 
-        // Find the best price
-        var bestPriceResult = validResults
-            .MinBy(r => decimal.TryParse(r.Details.Price, out var price) ? price : decimal.MaxValue);
-
-        var moviePriceDto = new MoviePriceDto
+        if (movie is null)
         {
-            Provider = bestPriceResult.Provider,
-            Price = bestPriceResult.Details.Price
-        };
-
-        // Only cache if we got successful responses from all requested providers
-        if (validResults.Count == _providers.Count())
-        {
-            var cacheOptions = new MemoryCacheEntryOptions()
-                .SetAbsoluteExpiration(TimeSpan.FromMinutes(CACHE_DURATION_MINUTES));
-
-            _cache.Set(cacheKey, moviePriceDto, cacheOptions);
-            _logger.LogInformation("Cached prices for providers: {ProviderId}", id);
+            return new OffersResult(unavailable.Count > 0 ? OffersStatus.Unavailable : OffersStatus.NotFound);
         }
 
-        return moviePriceDto;
+        if (offers.Count == 0)
+        {
+            return new OffersResult(OffersStatus.Unavailable);
+        }
+
+        var ordered = offers.OrderBy(o => o.Price).ToList();
+        return new OffersResult(OffersStatus.Found, new MovieOffersDto(
+            movie.Id, movie.Title, movie.Year, movie.Poster, ordered[0], ordered, unavailable.Count == 0, unavailable));
     }
+
+    public IReadOnlyList<ProviderStatus> GetProviderStatuses()
+    {
+        var now = timeProvider.GetUtcNow();
+        return _providerNames
+            .Select(name => store.Get(name) is { } snapshot
+                ? new ProviderStatus(name, IsFresh(snapshot, now), HasData(snapshot, now))
+                : new ProviderStatus(name, false, false))
+            .ToList();
+    }
+
+    private bool IsFresh(ProviderSnapshot? snapshot, DateTimeOffset now) =>
+        snapshot?.LastSuccessAt is { } at && now - at <= _settings.StaleAfter;
+
+    private bool HasData(ProviderSnapshot snapshot, DateTimeOffset now) =>
+        snapshot.LastSuccessAt is { } at && now - at <= _settings.MaxDataAge;
 }

@@ -1,0 +1,10 @@
+.env
+.git
+.github
+compose.yaml
+docs
+tools
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/

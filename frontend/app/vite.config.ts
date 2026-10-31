@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import path from "path"
 
@@ -10,11 +10,14 @@ export default defineConfig({
     host: true,
     proxy: {
       '/api': {
-        target: 'http://backend:5000',
+        target: 'http://localhost:8080',
         changeOrigin: true,
         secure: false,
       }
     }
+  },
+  test: {
+    environment: 'jsdom',
   },
   resolve: {
     alias: {

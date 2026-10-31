@@ -1,34 +1,57 @@
-.PHONY: deploy-remote
-deploy-remote: load-remote-backend load-remote-frontend
-	@echo "Deploying to remote..."
-	@docker --context remote compose -f docker/docker-compose.yml --profile remote up --force-recreate -d
+COMPOSE := docker compose
+DEMO_ENV := API_BASE_URL=http://fake-upstream:8080 API_TOKEN=fake-token \
+	REFRESH_INTERVAL=00:00:15 FAILURE_RETRY_INTERVAL=00:00:05 STALE_AFTER=00:00:30
 
+-include .env
+export DEPLOY_HOST
+
+# Build and run locally against the API in .env: http://localhost:8080
 .PHONY: deploy-local
 deploy-local:
-	@docker --context default compose -f docker/docker-compose.yml --profile local up --build --force-recreate -d
+	@$(COMPOSE) up --build --detach --wait
 
-.PHONY: build-remote-backend
-build-remote-backend:
-	@echo "Building backend image for remote..."
-	@docker build --secret id=remote-env,src=docker/secrets/remote-env -f backend/Dockerfile -t backend ./backend
+.PHONY: down
+down:
+	@$(COMPOSE) --profile tls --profile demo down
 
-.PHONY: build-remote-frontend
-build-remote-frontend:
-	@echo "Building frontend image for remote..."
-	@docker build --secret id=remote-env,src=docker/secrets/remote-env -f frontend/app/Dockerfile -t frontend ./frontend/app
+.PHONY: logs
+logs:
+	@$(COMPOSE) logs --follow app
 
-.PHONY: load-remote-backend
-load-remote-backend: build-remote-backend
-	@echo "Saving backend image..."
-	@docker image save -o /tmp/backend.tar backend:latest
-	@echo "Uploading backend image to remote..."
-	@docker --context remote image load -i /tmp/backend.tar
-	@rm -f /tmp/backend.tar
+# Deploy the published image with HTTPS to DEPLOY_HOST over SSH.
+.PHONY: deploy
+deploy:
+	@test -n "$(DEPLOY_HOST)" || (echo "Set DEPLOY_HOST in .env" >&2; exit 1)
+	@DOCKER_HOST=ssh://$(DEPLOY_HOST) $(COMPOSE) --profile tls up --no-build --pull always --detach --wait
 
-.PHONY: load-remote-frontend
-load-remote-frontend: build-remote-frontend
-	@echo "Saving frontend image..."
-	@docker image save -o /tmp/frontend.tar frontend:latest
-	@echo "Uploading frontend image to remote..."
-	@docker --context remote image load -i /tmp/frontend.tar
-	@rm -f /tmp/frontend.tar
+# Tests the token in .env against the real API.
+.PHONY: check-upstream
+check-upstream:
+	@tools/check-upstream.sh .env
+
+# The production image against the fake provider API. Needs no token.
+.PHONY: demo
+demo:
+	@$(DEMO_ENV) $(COMPOSE) --profile demo up --build --detach --wait
+
+.PHONY: smoke
+smoke: demo
+	@tools/smoke-test.sh; status=$$?; $(MAKE) --no-print-directory down; exit $$status
+
+.PHONY: test
+test: test-backend test-frontend
+
+# Runs in Docker so the only local requirement is Docker itself.
+.PHONY: test-backend
+test-backend:
+	@docker build --target backend-test --progress plain .
+
+.PHONY: test-frontend
+test-frontend:
+	@cd frontend/app && bun install --frozen-lockfile && bun run lint && bun run test
+
+# Regenerates the OpenAPI document and frontend types after an API change. Needs the .NET 10 SDK.
+.PHONY: openapi
+openapi:
+	@cd backend && UPDATE_OPENAPI=1 dotnet test tests/MovieComparison.IntegrationTests --filter OpenApiContractTests
+	@cd frontend/app && bun run gen:api
