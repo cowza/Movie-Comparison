@@ -2,7 +2,7 @@
 # Checks whether the provider API accepts the token in an env file. Never prints the token.
 set -uo pipefail
 
-env_file="${1:-docker/secrets/local-env}"
+env_file="${1:-.env}"
 if [[ ! -f "$env_file" ]]; then
     echo "No env file at $env_file. Create it from .env.example first." >&2
     exit 2
@@ -12,10 +12,10 @@ read_value() {
     grep -E "^$1=" "$env_file" | tail -1 | cut -d= -f2- | tr -d '\r"'
 }
 
-base_url="$(read_value ExternalApiSettings__BaseUrl)"
-token="$(read_value ExternalApiSettings__ApiToken)"
+base_url="$(read_value API_BASE_URL)"
+token="$(read_value API_TOKEN)"
 if [[ -z "$base_url" || -z "$token" ]]; then
-    echo "$env_file must set ExternalApiSettings__BaseUrl and ExternalApiSettings__ApiToken." >&2
+    echo "$env_file must set API_BASE_URL and API_TOKEN." >&2
     exit 2
 fi
 

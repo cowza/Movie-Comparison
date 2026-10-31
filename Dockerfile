@@ -17,7 +17,7 @@ RUN dotnet test MovieComparison.sln --no-restore
 FROM backend-source AS backend
 RUN dotnet publish src/MovieComparison.Api/MovieComparison.Api.csproj -c Release -o /app --no-restore
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS app
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine AS app
 WORKDIR /app
 COPY --from=backend /app .
 COPY --from=frontend /app/dist ./wwwroot

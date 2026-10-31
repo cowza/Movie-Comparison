@@ -3,7 +3,7 @@ WORKDIR /src
 COPY tools/MovieComparison.FakeUpstream/ .
 RUN dotnet publish -c Release -o /app
 
-FROM mcr.microsoft.com/dotnet/aspnet:10.0
+FROM mcr.microsoft.com/dotnet/aspnet:10.0-alpine
 WORKDIR /app
 COPY --from=build /app .
 USER $APP_UID

@@ -1,0 +1,87 @@
+name: movie-comparison
+
+x-service: &service
+  restart: unless-stopped
+  read_only: true
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  app:
+    <<: *service
+    image: ${APP_IMAGE:-ghcr.io/cowza/movie-comparison:latest}
+    build:
+      context: .
+      target: app
+    environment:
+      ExternalApiSettings__BaseUrl: ${API_BASE_URL:?Set API_BASE_URL in .env}
+      ExternalApiSettings__ApiToken: ${API_TOKEN:?Set API_TOKEN in .env}
+      Snapshot__RefreshInterval: ${REFRESH_INTERVAL:-00:05:00}
+      Snapshot__FailureRetryInterval: ${FAILURE_RETRY_INTERVAL:-00:00:30}
+      Snapshot__StaleAfter: ${STALE_AFTER:-00:15:00}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      # Safe because the port below is loopback only, so Caddy is the one proxy clients come through.
+      ASPNETCORE_FORWARDEDHEADERS_ENABLED: "true"
+    ports:
+      - 127.0.0.1:${APP_PORT:-8080}:8080
+    tmpfs:
+      - /tmp
+    mem_limit: 256m
+    healthcheck:
+      # Liveness, not readiness: a provider outage must not restart or remove the app.
+      test: [CMD, wget, -q, --spider, http://127.0.0.1:8080/health/live]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+      start_interval: 1s
+
+  # Public HTTPS with automatic certificates: docker compose --profile tls up -d
+  caddy:
+    <<: *service
+    image: caddy:2.10-alpine
+    profiles:
+      - tls
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - ${HTTP_PORT:-80}:80
+      - ${HTTPS_PORT:-443}:443
+      - ${HTTPS_PORT:-443}:443/udp
+    command: caddy reverse-proxy --from ${DOMAIN:-localhost} --to app:8080
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+    tmpfs:
+      - /tmp
+    mem_limit: 128m
+    depends_on:
+      app:
+        condition: service_healthy
+
+  # Stands in for the provider API so the app can run without a token: make demo
+  fake-upstream:
+    <<: *service
+    profiles:
+      - demo
+    build:
+      context: backend
+      dockerfile: tools/MovieComparison.FakeUpstream/Dockerfile
+    environment:
+      FAKE_UPSTREAM_TOKEN: ${API_TOKEN:-}
+    ports:
+      - 127.0.0.1:${FAKE_UPSTREAM_PORT:-8081}:8080
+    tmpfs:
+      - /tmp
+    mem_limit: 128m
+
+volumes:
+  caddy_data:
+  caddy_config:
